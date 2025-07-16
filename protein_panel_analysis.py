@@ -6,11 +6,11 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import requests
 import mysql.connector
+from pathlib import Path
 from matplotlib.gridspec import GridSpec
 from matplotlib.patches import Rectangle
 import matplotlib.colors as mcolors
 import matplotlib.cm as cm
-from pathlib import Path
 from PIL import Image
 
 # === Fixed Configuration ===
@@ -331,7 +331,7 @@ def plot_panel_b(protein_name):
         segs.append((current_seg, current_exon))
         offset_x = label_x
         for seg, exon in segs:
-            color = exon_colors[exon % len(exon_colors)] if exon is not None else 'auto'
+            color = exon_colors[exon % len(exon_colors)] if exon is not None else 'gray'
             fig.text(offset_x, y_pos, seg, va='center', ha='left',
                      fontsize=16, fontweight='bold', fontfamily='monospace', color=color)
             offset_x += len(seg) * char_width + gap
@@ -476,7 +476,7 @@ def plot_isoform_maps(results, gene_name):
             match = re.search(re.escape(pep), canonical_protein)
             if not match:
                 ax.add_patch(plt.Rectangle((pep_start, iso_y - 0.2), len(pep), 0.4,
-                                           facecolor='auto', edgecolor='black', lw=0.5))
+                                           facecolor='gray', edgecolor='black', lw=0.5))
                 continue
 
             start, end = match.start(), match.end()
@@ -496,7 +496,7 @@ def plot_isoform_maps(results, gene_name):
 
             offset = pep_start
             for seg, exon in label_segments:
-                color = exon_colors[exon % len(exon_colors)] if exon is not None else 'auto'
+                color = exon_colors[exon % len(exon_colors)] if exon is not None else 'gray'
                 if exon is not None:
                     used_exons.add(exon)
                 ax.add_patch(plt.Rectangle((offset, iso_y - 0.2), len(seg), 0.4,
@@ -557,8 +557,18 @@ def analyze_all_panels(gene_name):
 
 if __name__ == "__main__":
     import sys
-    if len(sys.argv) != 2:
-        print("Usage: python yourscript.py <GENE_NAME>")
+    import matplotlib.pyplot as plt
+    from PIL import Image
+
+    if len(sys.argv) < 2:
+        print("Usage: python protein_panel_analysis.py <GENE_NAME>")
         sys.exit(1)
+
     gene = sys.argv[1]
-    analyze_all_panels(gene)
+    panel_files = analyze_all_panels(gene)
+
+    for panel_name, filepath in panel_files.items():
+        print(f"Displaying {panel_name} saved at: {filepath}")
+        img = Image.open(filepath)
+        img.show()
+
