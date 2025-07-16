@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import requests
 import mysql.connector
+from pathlib import Path
 from matplotlib.gridspec import GridSpec
 from matplotlib.patches import Rectangle
 import matplotlib.colors as mcolors
@@ -100,7 +101,7 @@ def plot_panel_a_boxplot(df, protein_name):
         marker='o',
         alpha=0.7,
         size=5,
-        edgecolor='gray',
+        edgecolor='auto',
         linewidth=0.5
     )
     handles, labels = plt.gca().get_legend_handles_labels()
@@ -556,8 +557,18 @@ def analyze_all_panels(gene_name):
 
 if __name__ == "__main__":
     import sys
-    if len(sys.argv) != 2:
-        print("Usage: python yourscript.py <GENE_NAME>")
+    import matplotlib.pyplot as plt
+    from PIL import Image
+
+    if len(sys.argv) < 2:
+        print("Usage: python protein_panel_analysis.py <GENE_NAME>")
         sys.exit(1)
+
     gene = sys.argv[1]
-    analyze_all_panels(gene)
+    panel_files = analyze_all_panels(gene)
+
+    for panel_name, filepath in panel_files.items():
+        print(f"Displaying {panel_name} saved at: {filepath}")
+        img = Image.open(filepath)
+        img.show()
+
