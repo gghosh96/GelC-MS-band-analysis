@@ -101,7 +101,7 @@ def plot_panel_a_boxplot(df, protein_name):
         marker='o',
         alpha=0.7,
         size=5,
-        edgecolor='gray',
+        edgecolor='auto',
         linewidth=0.5
     )
     handles, labels = plt.gca().get_legend_handles_labels()
@@ -331,7 +331,7 @@ def plot_panel_b(protein_name):
         segs.append((current_seg, current_exon))
         offset_x = label_x
         for seg, exon in segs:
-            color = exon_colors[exon % len(exon_colors)] if exon is not None else 'gray'
+            color = exon_colors[exon % len(exon_colors)] if exon is not None else 'auto'
             fig.text(offset_x, y_pos, seg, va='center', ha='left',
                      fontsize=16, fontweight='bold', fontfamily='monospace', color=color)
             offset_x += len(seg) * char_width + gap
@@ -476,7 +476,7 @@ def plot_isoform_maps(results, gene_name):
             match = re.search(re.escape(pep), canonical_protein)
             if not match:
                 ax.add_patch(plt.Rectangle((pep_start, iso_y - 0.2), len(pep), 0.4,
-                                           facecolor='gray', edgecolor='black', lw=0.5))
+                                           facecolor='auto', edgecolor='black', lw=0.5))
                 continue
 
             start, end = match.start(), match.end()
@@ -496,7 +496,7 @@ def plot_isoform_maps(results, gene_name):
 
             offset = pep_start
             for seg, exon in label_segments:
-                color = exon_colors[exon % len(exon_colors)] if exon is not None else 'gray'
+                color = exon_colors[exon % len(exon_colors)] if exon is not None else 'auto'
                 if exon is not None:
                     used_exons.add(exon)
                 ax.add_patch(plt.Rectangle((offset, iso_y - 0.2), len(seg), 0.4,
