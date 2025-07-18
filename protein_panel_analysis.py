@@ -42,6 +42,8 @@ GENETIC_CODE = {
 }
 
 def load_diffacto_data(protein_name):
+    import re
+    pattern = re.compile(rf"^{re.escape(protein_name)}\.")
     all_data = []
     for band in BAND_RANGE:
         file_name = f"Band_{band}_proteins.csv"
@@ -53,7 +55,7 @@ def load_diffacto_data(protein_name):
         if 'Protein' not in df.columns:
             continue
         mask = df['Protein'].str.split(';').apply(
-            lambda isoforms: any(p.strip().startswith(protein_name) for p in isoforms)
+            lambda isoforms: any(pattern.match(p.strip()) for p in isoforms)
         )
         df_protein = df[mask].copy()
         if df_protein.empty:
@@ -68,6 +70,7 @@ def load_diffacto_data(protein_name):
         raise ValueError("No data collected. Check protein name or input files.")
     combined_df = pd.concat(all_data, ignore_index=True)
     return combined_df
+
 
 def plot_panel_a_boxplot(df, protein_name):
     df['Condition'] = df['Sample'].astype(str).apply(
@@ -228,8 +231,6 @@ def get_peptide_exon_mapping(peptides, protein_seq, aa_to_exon):
     return mapping
 
 def plot_panel_b(protein_name):
-    from matplotlib.patches import Rectangle
-
     band_files = sorted(
         [(int(re.search(r'Band_(\d+)', f).group(1)), f) for f in os.listdir(BAND_FOLDER) if f.endswith('.csv')],
         key=lambda x: x[0]
@@ -237,12 +238,16 @@ def plot_panel_b(protein_name):
     bands = [str(band_num) for band_num, _ in band_files]
     peptide_data = {}
 
-    # Collect peptide data as before
+    pattern = re.compile(rf"^{re.escape(protein_name)}\.")
+
+    # Collect peptide data with exact matching
     for band_num, filename in band_files:
         path = os.path.join(BAND_FOLDER, filename)
         df = pd.read_csv(path)
         df['Protein'] = df['Protein'].astype(str)
-        df = df[df['Protein'].str.contains(fr'\b{protein_name}\b', case=False, na=False)]
+
+        # Keep rows where any semicolon-separated isoform starts with protein_name + "."
+        df = df[df['Protein'].str.split(';').apply(lambda prots: any(pattern.match(p.strip()) for p in prots))]
 
         if df.empty:
             continue
@@ -272,7 +277,6 @@ def plot_panel_b(protein_name):
     n_rows = len(peptides)
     n_cols = len(bands)
 
-    # Adjust figure size: width depends on columns, height depends on rows (more peptides → taller)
     fig_width = max(12, n_cols * 1.3)
     fig_height = max(4, n_rows * 0.7)
     fig = plt.figure(figsize=(fig_width, fig_height))
@@ -303,13 +307,10 @@ def plot_panel_b(protein_name):
             combined = T_vals + N_vals
             if combined:
                 ax.set_ylim(min(combined) * 0.9, max(combined) * 1.1)
-
-            # Fix aspect ratio to prevent squishing bars
             ax.set_aspect('auto')
 
-    # Label peptides on the left side with some padding
-    label_x = -0.12  # moved a bit more left for spacing
-    char_width = 0.0065  # Adjust if you want label spacing
+    label_x = -0.12
+    char_width = 0.0065
     gap = 0.0005
 
     for i, pep in enumerate(peptides):
@@ -336,35 +337,29 @@ def plot_panel_b(protein_name):
                      fontsize=16, fontweight='bold', fontfamily='monospace', color=color)
             offset_x += len(seg) * char_width + gap
 
-    # Label bands along the bottom with better spacing
     for j, band in enumerate(bands):
         fig.text((j + 0.5) / n_cols, -0.01, f'Band {band}', va='top', ha='center', fontsize=12)
 
-    # This keeps peptide labels at their position but pushes heatmap grid right to fill space
     fig.subplots_adjust(left=0, right=1, bottom=0, top=1)
-    
-    # Create normalization and scalar mappable
+
     norm = mcolors.Normalize(vmin=-max_abs, vmax=max_abs)
     sm = cm.ScalarMappable(cmap='BrBG', norm=norm)
     sm.set_array([])
-    
-    # Calculate proportional height of colorbar based on peptide count (n_rows)
+
     fig_width, fig_height = fig.get_size_inches()
     row_height_inch = fig_height / n_rows
     heatmap_height_inch = n_rows * row_height_inch
     cbar_height_frac = heatmap_height_inch / fig_height
     cbar_bottom = (1 - cbar_height_frac) / 2
-    
-    # Add colorbar to the right, matching vertical size to heatmap
+
     cbar_ax = fig.add_axes([1.01, cbar_bottom, 0.015, cbar_height_frac])
     cbar = fig.colorbar(sm, cax=cbar_ax)
     cbar.set_label('Log2 Fold Change (Tumor / Normal)', fontsize=12)
 
-
-    title_offset = (fig_height + 0.4) / fig_height 
+    title_offset = (fig_height + 0.4) / fig_height
     fig.suptitle(f"{protein_name} Peptide Heatmap (Tumor vs Normal)",
                  fontsize=18, y=title_offset)
-    
+
     output_file = f"{protein_name}_panelB_heatmap.png"
     plt.savefig(output_file, dpi=300, bbox_inches='tight')
     plt.close(fig)
@@ -399,32 +394,39 @@ def parse_fasta(fasta_path, gene_name):
         for line in f:
             line = line.strip()
             if line.startswith(">"):
-                if current_id and gene_name in current_id:
+                if current_id and re.match(fr'^{re.escape(gene_name)}\.', current_id):
                     sequences[current_id] = ''.join(current_seq)
                 current_id = line[1:].split()[0]
                 current_seq = []
             else:
                 current_seq.append(line)
-        if current_id and gene_name in current_id:
+        if current_id and re.match(fr'^{re.escape(gene_name)}\.', current_id):
             sequences[current_id] = ''.join(current_seq)
     return sequences
 
 def find_peptide_to_isoform_map(peptide_csv_dir, gene_name):
     isoform_to_peptides = {}
+    pattern = fr'^{re.escape(gene_name)}\.'  # Exact match: gene_name followed by dot
+
     for csv_file in Path(peptide_csv_dir).glob("*.csv"):
         try:
             df = pd.read_csv(csv_file, sep=None, engine="python", encoding="utf-8")
             df.columns = df.columns.str.strip().str.replace('\ufeff', '', regex=False)
             if not {"sequences", "Protein"}.issubset(df.columns):
                 continue
-            df = df[df['Protein'].str.contains(gene_name, na=False)]
+
+            # Filter proteins by exact gene name + dot prefix
+            df = df[df['Protein'].str.match(pattern, na=False)]
+
             for _, row in df.iterrows():
                 peptide = row['sequences']
                 for isoform in row['Protein'].split(';'):
-                    if gene_name in isoform:
-                        isoform_to_peptides.setdefault(isoform.strip(), set()).add(peptide)
+                    isoform = isoform.strip()
+                    if isoform.startswith(f"{gene_name}."):
+                        isoform_to_peptides.setdefault(isoform, set()).add(peptide)
         except Exception:
             continue
+
     return isoform_to_peptides
 
 def analyze_isoforms(fasta_path, peptide_csv_dir, gene_name):
@@ -571,4 +573,3 @@ if __name__ == "__main__":
         print(f"Displaying {panel_name} saved at: {filepath}")
         img = Image.open(filepath)
         img.show()
-
