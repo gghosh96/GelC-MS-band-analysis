@@ -40,34 +40,44 @@ GENETIC_CODE = {
     'TAC':'Y', 'TAT':'Y', 'TAA':'*', 'TAG':'*',
     'TGC':'C', 'TGT':'C', 'TGA':'*', 'TGG':'W'
 }
+def matches_gene_id(fasta_id, gene_name):
+    pattern = re.compile(rf'^{re.escape(gene_name)}\.', re.IGNORECASE)
+    return pattern.match(fasta_id) is not None
 
 def load_diffacto_data(protein_name):
-    import re
-    pattern = re.compile(rf"^{re.escape(protein_name)}\.")
     all_data = []
     for band in BAND_RANGE:
         file_name = f"Band_{band}_proteins.csv"
         file_path = os.path.join(FOLDER_PATH, file_name)
         if not os.path.exists(file_path):
             continue
+
         df = pd.read_csv(file_path, sep=None, engine='python')
         df.columns = [col.strip().replace(" ", "") for col in df.columns]
+
         if 'Protein' not in df.columns:
             continue
+
+        # Use matches_gene_id() to match any protein isoform
         mask = df['Protein'].str.split(';').apply(
-            lambda isoforms: any(pattern.match(p.strip()) for p in isoforms)
+            lambda isoforms: any(matches_gene_id(p.strip(), protein_name) for p in isoforms)
         )
+
         df_protein = df[mask].copy()
+
         if df_protein.empty:
             sample_cols = [col for col in df.columns if col != 'Protein']
             zero_row = {col: 0 for col in sample_cols}
             zero_row['Protein'] = protein_name
             df_protein = pd.DataFrame([zero_row])
+
         df_melted = df_protein.melt(id_vars=['Protein'], var_name='Sample', value_name='Intensity')
         df_melted['Band'] = band
         all_data.append(df_melted)
+
     if not all_data:
         raise ValueError("No data collected. Check protein name or input files.")
+
     combined_df = pd.concat(all_data, ignore_index=True)
     return combined_df
 
@@ -238,8 +248,6 @@ def plot_panel_b(protein_name):
     bands = [str(band_num) for band_num, _ in band_files]
     peptide_data = {}
 
-    pattern = re.compile(rf"^{re.escape(protein_name)}\.")
-
     # Collect peptide data with exact matching
     for band_num, filename in band_files:
         path = os.path.join(BAND_FOLDER, filename)
@@ -247,7 +255,7 @@ def plot_panel_b(protein_name):
         df['Protein'] = df['Protein'].astype(str)
 
         # Keep rows where any semicolon-separated isoform starts with protein_name + "."
-        df = df[df['Protein'].str.split(';').apply(lambda prots: any(pattern.match(p.strip()) for p in prots))]
+        df = df[df['Protein'].str.split(';').apply(lambda prots: any(matches_gene_id(p.strip(), protein_name) for p in prots))]
 
         if df.empty:
             continue
@@ -394,13 +402,13 @@ def parse_fasta(fasta_path, gene_name):
         for line in f:
             line = line.strip()
             if line.startswith(">"):
-                if current_id and re.match(fr'^{re.escape(gene_name)}\.', current_id):
+                if current_id and matches_gene_id(current_id, gene_name):
                     sequences[current_id] = ''.join(current_seq)
                 current_id = line[1:].split()[0]
                 current_seq = []
             else:
                 current_seq.append(line)
-        if current_id and re.match(fr'^{re.escape(gene_name)}\.', current_id):
+        if current_id and matches_gene_id(current_id, gene_name):
             sequences[current_id] = ''.join(current_seq)
     return sequences
 
