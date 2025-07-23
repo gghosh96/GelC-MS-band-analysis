@@ -11,76 +11,11 @@ from matplotlib.gridspec import GridSpec
 from matplotlib.patches import Rectangle
 import matplotlib.colors as mcolors
 import matplotlib.cm as cm
+from constants import FOLDER_PATH, BAND_RANGE, SAVE_PLOTS, BAND_FOLDER, FASTA_PATH, PEPTIDE_CSV_DIR
+from constants import GENETIC_CODE, GEL_BANDS, AA_WEIGHTS, WATER_MASS
+from utils import *
+from ucsc_api import *
 from PIL import Image
-
-# === Fixed Configuration ===
-FOLDER_PATH = "Gel_Band_Protein_Quants/"
-BAND_RANGE = range(1, 17)
-SAVE_PLOTS = True
-BAND_FOLDER = "Gel_Band_Peptide_Quants/"
-FASTA_PATH = "Transcriptome_peptides_final_headers.fasta"
-PEPTIDE_CSV_DIR = BAND_FOLDER
-
-# Genetic code dictionary
-GENETIC_CODE = {
-    'ATA':'I', 'ATC':'I', 'ATT':'I', 'ATG':'M',
-    'ACA':'T', 'ACC':'T', 'ACG':'T', 'ACT':'T',
-    'AAC':'N', 'AAT':'N', 'AAA':'K', 'AAG':'K',
-    'AGC':'S', 'AGT':'S', 'AGA':'R', 'AGG':'R',
-    'CTA':'L', 'CTC':'L', 'CTG':'L', 'CTT':'L',
-    'CCA':'P', 'CCC':'P', 'CCG':'P', 'CCT':'P',
-    'CAC':'H', 'CAT':'H', 'CAA':'Q', 'CAG':'Q',
-    'CGA':'R', 'CGC':'R', 'CGG':'R', 'CGT':'R',
-    'GTA':'V', 'GTC':'V', 'GTG':'V', 'GTT':'V',
-    'GCA':'A', 'GCC':'A', 'GCG':'A', 'GCT':'A',
-    'GAC':'D', 'GAT':'D', 'GAA':'E', 'GAG':'E',
-    'GGA':'G', 'GGC':'G', 'GGG':'G', 'GGT':'G',
-    'TCA':'S', 'TCC':'S', 'TCG':'S', 'TCT':'S',
-    'TTC':'F', 'TTT':'F', 'TTA':'L', 'TTG':'L',
-    'TAC':'Y', 'TAT':'Y', 'TAA':'*', 'TAG':'*',
-    'TGC':'C', 'TGT':'C', 'TGA':'*', 'TGG':'W'
-}
-def matches_gene_id(fasta_id, gene_name):
-    pattern = re.compile(rf'^{re.escape(gene_name)}\.', re.IGNORECASE)
-    return pattern.match(fasta_id) is not None
-
-def load_diffacto_data(protein_name):
-    all_data = []
-    for band in BAND_RANGE:
-        file_name = f"Band_{band}_proteins.csv"
-        file_path = os.path.join(FOLDER_PATH, file_name)
-        if not os.path.exists(file_path):
-            continue
-
-        df = pd.read_csv(file_path, sep=None, engine='python')
-        df.columns = [col.strip().replace(" ", "") for col in df.columns]
-
-        if 'Protein' not in df.columns:
-            continue
-
-        # Use matches_gene_id() to match any protein isoform
-        mask = df['Protein'].str.split(';').apply(
-            lambda isoforms: any(matches_gene_id(p.strip(), protein_name) for p in isoforms)
-        )
-
-        df_protein = df[mask].copy()
-
-        if df_protein.empty:
-            sample_cols = [col for col in df.columns if col != 'Protein']
-            zero_row = {col: 0 for col in sample_cols}
-            zero_row['Protein'] = protein_name
-            df_protein = pd.DataFrame([zero_row])
-
-        df_melted = df_protein.melt(id_vars=['Protein'], var_name='Sample', value_name='Intensity')
-        df_melted['Band'] = band
-        all_data.append(df_melted)
-
-    if not all_data:
-        raise ValueError("No data collected. Check protein name or input files.")
-
-    combined_df = pd.concat(all_data, ignore_index=True)
-    return combined_df
-
 
 def plot_panel_a_boxplot(df, protein_name):
     df['Condition'] = df['Sample'].astype(str).apply(
@@ -129,34 +64,6 @@ def plot_panel_a_boxplot(df, protein_name):
     plt.savefig(output_file, dpi=300)
     plt.close()
     return output_file
-
-def connect_ucsc():
-    return mysql.connector.connect(user='genome', host='genome-mysql.soe.ucsc.edu', database='hg38')
-
-def fetch_transcript_info(gene_name):
-    conn = connect_ucsc()
-    cur = conn.cursor(dictionary=True)
-    query = """
-        SELECT * FROM refGene
-        WHERE name2 = %s AND cdsStart < cdsEnd
-        ORDER BY exonCount DESC LIMIT 1
-    """
-    cur.execute(query, (gene_name,))
-    row = cur.fetchone()
-    conn.close()
-    return row
-    
-def fetch_genomic_sequence(chrom, start, end):
-    url = f"https://api.genome.ucsc.edu/getData/sequence?genome=hg38;chrom={chrom};start={start};end={end}"
-    res = requests.get(url)
-    res.raise_for_status()
-    return res.json()["dna"].upper()
-
-def reverse_complement(seq):
-    return seq.translate(str.maketrans("ATCG", "TAGC"))[::-1]
-
-def translate_dna(dna_seq):
-    return ''.join([GENETIC_CODE.get(dna_seq[i:i+3], 'X') for i in range(0, len(dna_seq) - 2, 3)])
 
 def map_exons_to_aa(transcript):
     exon_starts = list(map(int, transcript['exonStarts'].decode().strip(',').split(',')))
@@ -373,69 +280,6 @@ def plot_panel_b(protein_name):
     plt.close(fig)
     return output_file
 
-# === Constants ===
-GEL_BANDS = [
-    (1, 8, 14), (2, 13, 17), (3, 15, 19), (4, 18, 22), (5, 20, 25),
-    (6, 24, 30), (7, 28, 35), (8, 32, 40), (9, 35, 44), (10, 42, 55),
-    (11, 47, 63), (12, 58, 90), (13, 75, 160), (14, 140, 280),
-    (15, 240, 450), (16, 450, float("inf"))
-]
-
-def assign_band(mw_kda):
-    return [band for band, low, high in GEL_BANDS if low <= mw_kda <= high]
-
-def calculate_mw(sequence):
-    aa_weights = {
-        'A': 71.0788,  'R': 156.1875, 'N': 114.1038, 'D': 115.0886,
-        'C': 103.1388, 'E': 129.1155, 'Q': 128.1307, 'G': 57.0519,
-        'H': 137.1411, 'I': 113.1594, 'L': 113.1594, 'K': 128.1741,
-        'M': 131.1926, 'F': 147.1766, 'P': 97.1167,  'S': 87.0782,
-        'T': 101.1051, 'W': 186.2132, 'Y': 163.1760, 'V': 99.1326
-    }
-    water_mass = 18.01528
-    return (sum(aa_weights.get(aa, 0.0) for aa in sequence) + water_mass) / 1000
-
-def parse_fasta(fasta_path, gene_name):
-    sequences = {}
-    with open(fasta_path) as f:
-        current_id, current_seq = None, []
-        for line in f:
-            line = line.strip()
-            if line.startswith(">"):
-                if current_id and matches_gene_id(current_id, gene_name):
-                    sequences[current_id] = ''.join(current_seq)
-                current_id = line[1:].split()[0]
-                current_seq = []
-            else:
-                current_seq.append(line)
-        if current_id and matches_gene_id(current_id, gene_name):
-            sequences[current_id] = ''.join(current_seq)
-    return sequences
-
-def find_peptide_to_isoform_map(peptide_csv_dir, gene_name):
-    isoform_to_peptides = {}
-    pattern = fr'^{re.escape(gene_name)}\.'  # Exact match: gene_name followed by dot
-
-    for csv_file in Path(peptide_csv_dir).glob("*.csv"):
-        try:
-            df = pd.read_csv(csv_file, sep=None, engine="python", encoding="utf-8")
-            df.columns = df.columns.str.strip().str.replace('\ufeff', '', regex=False)
-            if not {"sequences", "Protein"}.issubset(df.columns):
-                continue
-
-            # Filter proteins by exact gene name + dot prefix
-            df = df[df['Protein'].str.match(pattern, na=False)]
-
-            for _, row in df.iterrows():
-                peptide = row['sequences']
-                for isoform in row['Protein'].split(';'):
-                    isoform = isoform.strip()
-                    if isoform.startswith(f"{gene_name}."):
-                        isoform_to_peptides.setdefault(isoform, set()).add(peptide)
-        except Exception:
-            continue
-
-    return isoform_to_peptides
 
 def analyze_isoforms(fasta_path, peptide_csv_dir, gene_name):
     fasta_seqs = parse_fasta(fasta_path, gene_name)
