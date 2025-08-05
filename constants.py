@@ -26,7 +26,7 @@ GENETIC_CODE = {
     'TGC':'C', 'TGT':'C', 'TGA':'*', 'TGG':'W'
 }
 
-# === Gel Band MW Ranges (kDa) ===
+# === Approximate Gel Band MW Ranges (kDa) ===
 GEL_BANDS = [
     (1, 8, 14), (2, 13, 17), (3, 15, 19), (4, 18, 22), (5, 20, 25),
     (6, 24, 30), (7, 28, 35), (8, 32, 40), (9, 35, 44), (10, 42, 55),
