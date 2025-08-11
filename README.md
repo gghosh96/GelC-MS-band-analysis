@@ -1,20 +1,14 @@
-\# GelC MSMS Peptide Analysis
+GelC MSMS Peptide Analysis
 
 
 
-\## Overview
-
-
+Overview
 
 This project analyzes peptide and protein quantification data derived from gel bands, integrating proteomics data with transcript information to visualize protein isoforms and peptide mappings.
 
-
-
 ---
 
-
-
-\## Python Version
+Python Version
 
 
 
@@ -125,4 +119,5 @@ The script requires internet access to collect transcript information from the U
 
 
 Make sure all input files (protein quantification CSVs, peptide CSVs, and the FASTA file) are located in the correct directories as specified in the script (Gel\_Band\_Protein\_Quants/, Gel\_Band\_Peptide\_Quants/, and the FASTA file path).
+
 
