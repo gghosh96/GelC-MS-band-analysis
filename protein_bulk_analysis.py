@@ -5,9 +5,9 @@ from utils import matches_gene_id, parse_fasta, translate_dna, map_exons_to_aa
 from filter_internal_splicing import (
     filter_proteins_with_min_peptides,
     flag_splicing_events,
-    fetch_transcript_info,
     fetch_genomic_sequence,
 )
+from ucsc_api import fetch_all_transcripts, select_longest_cds_transcript
 
 TERMINAL_THRESHOLD = 10
 INTERNAL_LENGTH_THRESHOLD = 10
@@ -35,7 +35,8 @@ def analyze_multiple_genes(gene_list):
         # Splicing event flagging
         try:
             # Fetch transcript info
-            tx = fetch_transcript_info(gene)
+            transcripts = fetch_all_transcripts(gene)
+            tx = select_longest_cds_transcript(transcripts)
             if not tx:
                 print(f"  No transcript info found for {gene}. Skipping splicing analysis.")
                 gene_result['splicing_flags'] = None

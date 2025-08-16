@@ -31,7 +31,8 @@ def analyze_all_panels(gene_name):
     panelA_file = plot_panel_a_boxplot(df, gene_name, output_dir)
 
     print(f"Fetching transcript and plotting exon-colored protein for {gene_name}...")
-    tx = fetch_transcript_info(gene_name)
+    transcripts = fetch_all_transcripts(gene_name)
+    tx = select_longest_cds_transcript(transcripts)
     protein_seq, aa_ranges, aa_to_exon = map_exons_to_aa(tx)
     panelProtein_file = plot_protein(protein_seq, aa_ranges, gene_name, output_dir=output_dir)
 

@@ -104,7 +104,8 @@ def flag_isoforms_with_splicing_events(protein_list, terminal_threshold=10, inte
         print(f"Processing {gene}...")
 
         # Get canonical transcript info
-        tx = fetch_transcript_info(gene)
+        transcripts = fetch_all_transcripts(gene)
+        tx = select_longest_cds_transcript(transcripts)
         if not tx:
             print(f"  No transcript info found for {gene}. Skipping.")
             continue

@@ -143,36 +143,68 @@ def translate_dna(dna_seq):
     return ''.join([GENETIC_CODE.get(dna_seq[i:i+3], 'X') for i in range(0, len(dna_seq) - 2, 3)])
 
 
-# Map exons to amino acid positions and return translated protein + ranges + exon map
 def map_exons_to_aa(transcript):
-    exon_starts = list(map(int, transcript['exonStarts'].decode().strip(',').split(',')))
-    exon_ends = list(map(int, transcript['exonEnds'].decode().strip(',').split(',')))
+
+    exon_starts_raw = transcript['exonStarts']
+    exon_ends_raw = transcript['exonEnds']
+
+    # Decode only if bytes; otherwise use as string directly
+    if isinstance(exon_starts_raw, bytes):
+        exon_starts_str = exon_starts_raw.decode()
+    else:
+        exon_starts_str = exon_starts_raw
+
+    if isinstance(exon_ends_raw, bytes):
+        exon_ends_str = exon_ends_raw.decode()
+    else:
+        exon_ends_str = exon_ends_raw
+
+    # Strip trailing commas and split by comma
+    exon_starts = list(map(int, exon_starts_str.strip(',').split(',')))
+    exon_ends = list(map(int, exon_ends_str.strip(',').split(',')))
+
     cds_start, cds_end = transcript['cdsStart'], transcript['cdsEnd']
     chrom, strand = transcript['chrom'], transcript['strand']
 
     coding_dna = ""
-    aa_ranges, current_aa_pos = [], 0
+    aa_ranges = []
+    aa_to_exon = {}
 
-    for s, e in zip(exon_starts, exon_ends):
+    codon_buffer = ""
+    aa_pos = 0
+
+    for exon_idx, (s, e) in enumerate(zip(exon_starts, exon_ends)):
         exon_start = max(s, cds_start)
         exon_end = min(e, cds_end)
         if exon_start >= exon_end:
             continue
+
         seq = fetch_genomic_sequence(chrom, exon_start, exon_end)
-        coding_dna += seq
-        aa_len = (exon_end - exon_start) // 3
-        aa_ranges.append((current_aa_pos, current_aa_pos + aa_len))
-        current_aa_pos += aa_len
+        codon_buffer += seq
 
-    # Handle reverse strand: reverse complement and adjust ranges
+        # Process full codons
+        while len(codon_buffer) >= 3:
+            codon = codon_buffer[:3]
+            codon_buffer = codon_buffer[3:]
+            aa = GENETIC_CODE.get(codon, 'X')
+            coding_dna += codon
+            aa_to_exon[aa_pos] = exon_idx
+            aa_pos += 1
+
     if strand == '-':
-        coding_dna = reverse_complement(coding_dna)
-        total_len = current_aa_pos
-        aa_ranges = [(total_len - end, total_len - start) for (start, end) in reversed(aa_ranges)]
+        dna_revcomp = reverse_complement(coding_dna)
+        protein = ''.join(GENETIC_CODE.get(dna_revcomp[i:i+3], 'X')
+                          for i in range(0, len(dna_revcomp), 3))
+        total_len = len(protein)
+        aa_to_exon = {total_len - 1 - k: v for k, v in aa_to_exon.items()}
+    else:
+        protein = ''.join(GENETIC_CODE.get(coding_dna[i:i+3], 'X')
+                          for i in range(0, len(coding_dna), 3))
 
-    protein = translate_dna(coding_dna)
-
-    # Map amino acid index to exon index
-    aa_to_exon = {i: exon_idx for exon_idx, (start, end) in enumerate(aa_ranges) for i in range(start, end)}
+    # Build contiguous exon AA ranges
+    for exon_idx in sorted(set(aa_to_exon.values())):
+        indices = [i for i, ex in aa_to_exon.items() if ex == exon_idx]
+        if indices:
+            aa_ranges.append((min(indices), max(indices) + 1))
 
     return protein, aa_ranges, aa_to_exon
