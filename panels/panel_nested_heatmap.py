@@ -103,13 +103,28 @@ def plot_panel_b(protein_name, output_dir):
     # Order peptides by position in protein
     peptides = sorted(peptide_data, key=lambda p: protein_seq.find(p) if protein_seq.find(p) != -1 else float('inf'))
 
-    # Setup exon colors consistent with isoform map
+    # --- FIXED: Setup exon colors consistent with isoform map and strand orientation ---
     filtered_colors = get_filtered_colors()
-    exon_color_map = {i: filtered_colors[i % len(filtered_colors)] for i in range(len(aa_ranges))}
+    n_exons = len(aa_ranges)
+
+    # Get strand safely from tx (handle dict or object)
+    strand = getattr(tx, "strand", None)
+    if strand is None and isinstance(tx, dict):
+        strand = tx.get("strand", "+")
+    if strand not in ["+", "-"]:
+        strand = "+"
+
+    exon_color_map = {}
+    for exon_idx in range(n_exons):
+        palette_idx = exon_idx if strand == '+' else (n_exons - 1 - exon_idx)
+        exon_color_map[exon_idx] = filtered_colors[palette_idx % len(filtered_colors)]
+    # -------------------------------------------------------------------
 
     def get_exon_index_for_position(pos, aa_ranges):
+        # pos is 0-based (Python string index), aa_ranges are 1-based inclusive
+        pos_1based = pos - 1
         for exon_idx, (exon_start, exon_end) in enumerate(aa_ranges):
-            if exon_start <= pos < exon_end:
+            if exon_start <= pos_1based <= exon_end:  # inclusive on both ends
                 return exon_idx
         return None
 
@@ -226,7 +241,8 @@ def plot_panel_b(protein_name, output_dir):
 
         start, end = match.start(), match.end()
 
-        exon_idxs = [get_exon_index_for_position(pos, aa_ranges) for pos in range(start, end)]
+        exon_idxs = [get_exon_index_for_position(pos + 1, aa_ranges) 
+             for pos in range(start, end)]
 
         segs, current_exon, current_seg = [], exon_idxs[0], pep[0]
         for aa_idx, exon in zip(range(1, len(pep)), exon_idxs[1:]):
