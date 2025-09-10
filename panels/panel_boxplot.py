@@ -4,25 +4,38 @@ import pandas as pd
 import numpy as np
 
 def plot_panel_a_boxplot(df, protein_name, output_dir):
-    
-    # Assign sample condition
+    # --- Step 1: filter by protein name ---
+    if "Gene" in df.columns:
+        df = df[df["Gene"] == protein_name]
+
+    if df.empty:
+        raise ValueError(f"No data found for protein {protein_name}")
+
+    # --- Step 2: collapse duplicates by summing intensities ---
+    group_cols = ["Sample", "Band"]
+    if "Gene" in df.columns:
+        group_cols.append("Gene")
+
+    df = df.groupby(group_cols, as_index=False)["Intensity"].sum()
+
+    # --- Step 3: assign Tumor/Normal ---
     df['Condition'] = df['Sample'].astype(str).apply(
         lambda x: 'Tumor' if x.endswith('_T') else ('Normal' if x.endswith('_N') else 'Unknown')
     )
-    
+
     # Keep only Tumor and Normal
     df = df[df['Condition'].isin(['Tumor', 'Normal'])]
     if df.empty:
         raise ValueError("No valid 'Tumor' or 'Normal' samples found in the data.")
-    
-    # Normalize intensity
+
+    # --- Step 4: normalize intensity ---
     df['RelativeIntensity'] = df['Intensity'] / df['Intensity'].max()
     df = df.dropna(subset=['RelativeIntensity'])
 
     capped_values = []
     outlier_indices = []
 
-    # Process each Band × Condition group
+    # --- Step 5: outlier detection & capping per Band × Condition ---
     for (band, condition), group in df.groupby(['Band', 'Condition']):
         vals = group['RelativeIntensity'].copy()
         q1 = np.percentile(vals, 25)
@@ -30,37 +43,36 @@ def plot_panel_a_boxplot(df, protein_name, output_dir):
         iqr = q3 - q1
         median = np.median(vals)
         
-        # Tukey thresholds for outlier detection
+        # Tukey thresholds
         lower_tukey = q1 - 1.5 * iqr
         upper_tukey = q3 + 1.5 * iqr
         
-        # Identify outliers
+        # Outlier mask
         outlier_mask = (vals < lower_tukey) | (vals > upper_tukey)
         outlier_indices.extend(group[outlier_mask].index.tolist())
         
-        # Extreme capping at median ± 2×IQR
+        # Cap at median ± 2*IQR
         lower_cap = median - 2 * iqr
         upper_cap = median + 2 * iqr
         vals_capped = vals.clip(lower=lower_cap, upper=upper_cap)
         capped_values.append(vals_capped)
     
-    # Replace original values with capped values
+    # Replace values
     df['RelativeIntensityCapped'] = pd.concat(capped_values).sort_index()
     df['IsOutlier'] = False
     df.loc[outlier_indices, 'IsOutlier'] = True
 
-    # Split inliers and outliers
+    # Split inliers/outliers
     df_inliers = df[~df['IsOutlier']]
     df_outliers = df[df['IsOutlier']]
 
-    # Plot
+    # --- Step 6: plotting ---
     sns.set(style="whitegrid")
     plt.figure(figsize=(14, 6))
 
-    # Define fixed hue order so Normal always comes first
     hue_order = ['Normal', 'Tumor']
 
-    # Boxplot using capped values (inliers only)
+    # Boxplot (capped values, inliers only)
     sns.boxplot(
         data=df_inliers,
         x='Band',
@@ -90,7 +102,7 @@ def plot_panel_a_boxplot(df, protein_name, output_dir):
         linewidth=0.5
     )
 
-    # Overlay Tukey outliers as Xs (dark red/blue)
+    # Overlay outliers as Xs
     outlier_palette = {'Tumor': "#AF0000", 'Normal': "#0037CF"}
     sns.stripplot(
         data=df_outliers,
@@ -123,4 +135,5 @@ def plot_panel_a_boxplot(df, protein_name, output_dir):
     plt.savefig(output_file, dpi=300)
     plt.close()
     return output_file
+
 

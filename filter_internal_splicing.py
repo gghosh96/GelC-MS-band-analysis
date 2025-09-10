@@ -6,15 +6,12 @@ from ucsc_api import *
 from constants import FASTA_PATH
 from utils import translate_dna, parse_fasta, map_exons_to_aa
 
-def filter_proteins_with_min_peptides(protein_list, min_peptides=5):
+def build_protein_peptide_dict(protein_list):
     """
-    Filters the given list of proteins to those having at least `min_peptides` 
-    unique peptide sequences across all CSV files in BAND_FOLDER.
+    Collects all unique peptides detected per protein across all CSVs in BAND_FOLDER.
     """
-    # Dictionary to hold protein -> set of unique peptides
     protein_peptides = {prot: set() for prot in protein_list}
 
-    # Go through all CSV files
     for file in os.listdir(BAND_FOLDER):
         if not file.endswith(".csv"):
             continue
@@ -23,7 +20,6 @@ def filter_proteins_with_min_peptides(protein_list, min_peptides=5):
         if 'Protein' not in df.columns or 'sequences' not in df.columns:
             continue
         
-        # Iterate through rows
         for _, row in df.iterrows():
             prots = str(row['Protein']).split(';')
             peptide = str(row['sequences']).strip()
@@ -33,11 +29,32 @@ def filter_proteins_with_min_peptides(protein_list, min_peptides=5):
                     if matches_gene_id(prot.strip(), target_protein):
                         protein_peptides[target_protein].add(peptide)
 
-    # Filter to only proteins with ≥ min_peptides unique peptides
-    filtered_proteins = [
-        prot for prot, peptides in protein_peptides.items()
-        if len(peptides) >= min_peptides
-    ]
+    return protein_peptides
+
+def filter_proteins_by_coverage(protein_list, protein_peptides, coverage_threshold=0.3):
+    """
+    Filters proteins based on fraction of canonical sequence covered by detected peptides.
+    """
+    filtered_proteins = []
+
+    for protein in protein_list:
+        transcripts = fetch_all_transcripts(protein)
+        tx = select_longest_cds_transcript(transcripts)
+        if not tx:
+            continue
+
+        canonical_protein, _, _ = map_exons_to_aa(tx)
+        covered = [0] * len(canonical_protein)
+
+        for peptide in protein_peptides.get(protein, []):
+            start = canonical_protein.find(peptide)
+            if start != -1:
+                for i in range(start, start + len(peptide)):
+                    covered[i] = 1
+
+        coverage_fraction = sum(covered) / len(canonical_protein)
+        if coverage_fraction >= coverage_threshold:
+            filtered_proteins.append(protein)
 
     return filtered_proteins
 
@@ -103,26 +120,21 @@ def flag_isoforms_with_splicing_events(protein_list, terminal_threshold=10, inte
     for gene in protein_list:
         print(f"Processing {gene}...")
 
-        # Get canonical transcript info
         transcripts = fetch_all_transcripts(gene)
         tx = select_longest_cds_transcript(transcripts)
         if not tx:
             print(f"  No transcript info found for {gene}. Skipping.")
             continue
 
-        # Use map_exons_to_aa to get correct spliced canonical protein
         canonical_protein, aa_ranges, aa_to_exon = map_exons_to_aa(tx)
 
         print(f"Canonical protein sequence for {gene} (length {len(canonical_protein)} aa):")
         print(canonical_protein)
 
-        # Parse all isoforms from your FASTA file
         isoforms = parse_fasta(FASTA_PATH, gene)
 
         isoform_flags = []
         for isoform_id, iso_seq in isoforms.items():
-            # Include all isoforms without skipping canonical
-
             result = flag_splicing_events(
                 canonical_protein,
                 iso_seq,
@@ -143,10 +155,13 @@ def flag_isoforms_with_splicing_events(protein_list, terminal_threshold=10, inte
 if __name__ == "__main__":
     protein_list = ["HNRNPA2B1", "MBNL1"]
 
-    # Filter proteins with at least 5 unique peptides
-    filtered_proteins = filter_proteins_with_min_peptides(protein_list, min_peptides=5)
+    # Build protein -> peptide mapping
+    protein_peptides = build_protein_peptide_dict(protein_list)
 
-    # Flag isoforms with terminal or internal splicing events (and identical ones too)
+    # Filter proteins by ≥30% sequence coverage
+    filtered_proteins = filter_proteins_by_coverage(protein_list, protein_peptides, coverage_threshold=0.3)
+
+    # Flag isoforms with terminal or internal splicing events
     flagged_splicing = flag_isoforms_with_splicing_events(filtered_proteins,
                                                           terminal_threshold=10,
                                                           internal_length_threshold=10)
